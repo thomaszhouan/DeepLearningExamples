@@ -137,8 +137,7 @@ Ensure your loss values are comparable to those listed in the table in the
 Results section. For both models, the loss values are stored in the 
 `./output/nvlog.json` log file. 
 
-After you have trained the Tacotron 2 model for 1500 epochs and the 
-WaveGlow model for 800 epochs, you should get audio results similar to the 
+After you have trained the Tacotron 2 and WaveGlow models, you should get audio results similar to the
 samples in the `./audio` folder. For details about generating audio, see the 
 [Inference process](#inference-process) section below.
 
@@ -155,7 +154,9 @@ To run inference issue:
 ```bash
 python inference.py --tacotron2 <Tacotron2_checkpoint> --waveglow <WaveGlow_checkpoint> -o output/ -i phrase.txt --fp16-run
 ```
-The speech is generated from text file passed with `-i` argument. To run 
+The speech is generated from text file passed with `-i` argument.
+If no file is provided or if the provided file cannot be opened, speech will be
+generated from a default text located in the `inference.py` file. To run
 inference in mixed precision, use `--fp16-run` flag. The output audio will 
 be stored in the path specified by `-o` argument.
 
@@ -406,7 +407,7 @@ training script in the PyTorch-19.05-py3 NGC container on NVIDIA DGX-1 with
 Tacotron 2 and output samples per second for WaveGlow) were averaged over 
 an entire training epoch.
 
-This table shows the results for Tacotron 2, with batch size equal 48 and 80 
+This table shows the results for Tacotron 2, with batch size equal 80 and 48
 for mixed precision and FP32 training, respectively.
 
 |Number of GPUs|Mixed precision tokens/sec|FP32 tokens/sec|Speed-up with mixed precision|Multi-gpu weak scaling with mixed precision|Multi-gpu weak scaling with FP32|
@@ -415,7 +416,8 @@ for mixed precision and FP32 training, respectively.
 |**4**|7,768|5,683|1.37|3.04|3.27|
 |**8**|12,524|10,484|1.19|4.90|6.03|
 
-The following table shows the results for WaveGlow, with batch size equal 4 and 8 for mixed precision and FP32 training, respectively.
+The following table shows the results for WaveGlow, with batch size equal 8 and
+4 for mixed precision and FP32 training, respectively.
 
 |Number of GPUs|Mixed precision samples/sec|FP32 samples/sec|Speed-up with mixed precision|Multi-gpu weak scaling with mixed precision|Multi-gpu weak scaling with FP32|
 |---:|---:|---:|---:|---:|---:|
@@ -427,17 +429,17 @@ To achieve these same results, follow the [Quick Start Guide](#quick-start-guide
 
 ### Expected training time
 
-This table shows the expected training time for convergence for Tacotron 2 (1500 epochs).
+This table shows the expected training time for convergence for Tacotron 2 (1500 epochs, time in hours).
 
-|Number of GPUs|Expected training time with mixed precision|Expected training time with FP32|Speed-up with mixed precision|
+|Number of GPUs|Expected training time in hours with mixed precision|Expected training time in hours with FP32|Speed-up with mixed precision|
 |---:|---:|---:|---:|
 |**1**| 197.39 | 302.32 | 1.38 |
 |**4**| 63.29 | 88.07 | 1.25 |
 |**8**| 33.72 | 45.51 | 1.33 |
 
-This table shows the expected training time for convergence for WaveGlow (1000 epochs).
+This table shows the expected training time for convergence for WaveGlow (1000 epochs, time in hours).
 
-|Number of GPUs|Expected training time with mixed precision|Expected training time with FP32|Speed-up with mixed precision|
+|Number of GPUs|Expected training time in hours with mixed precision|Expected training time in hours with FP32|Speed-up with mixed precision|
 |---:|---:|---:|---:|
 |**1**| 400.99 | 782.67 | 1.95 |
 |**4**|	89.40 | 213.09 | 2.38 |
