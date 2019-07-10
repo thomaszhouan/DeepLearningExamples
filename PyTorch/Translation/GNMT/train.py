@@ -62,6 +62,8 @@ def parse_args():
 
     # model
     model = parser.add_argument_group('model setup')
+    model.add_argument('--bits', default=8, type=int,
+                       help='number of DFXP bits')
     model.add_argument('--hidden-size', default=1024, type=int,
                        help='model hidden size')
     model.add_argument('--num-layers', default=4, type=int,
@@ -327,9 +329,11 @@ def main():
     vocab_size = tokenizer.vocab_size
 
     # build GNMT model
-    model_config = {'hidden_size': args.hidden_size,
+    model_config = {'bits': args.bits,
+                    'hidden_size': args.hidden_size,
                     'num_layers': args.num_layers,
-                    'dropout': args.dropout, 'batch_first': False,
+                    'dropout': args.dropout,
+                    'batch_first': False,
                     'share_embedding': args.share_embedding}
     model = GNMT(vocab_size=vocab_size, **model_config)
     logging.info(model)

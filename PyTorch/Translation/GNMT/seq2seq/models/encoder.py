@@ -4,6 +4,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 
 import seq2seq.data.config as config
 from seq2seq.utils import init_lstm_
+from seq2seq.models.dfxp import LSTM_q
 
 
 class ResidualRecurrentEncoder(nn.Module):
@@ -16,11 +17,12 @@ class ResidualRecurrentEncoder(nn.Module):
     connections are enabled after third LSTM layer, dropout is applied on
     inputs to LSTM layers.
     """
-    def __init__(self, vocab_size, hidden_size=1024, num_layers=4, dropout=0.2,
+    def __init__(self, bits, vocab_size, hidden_size=1024, num_layers=4, dropout=0.2,
                  batch_first=False, embedder=None, init_weight=0.1):
         """
         Constructor for the ResidualRecurrentEncoder.
 
+        :param bits: number of DFXP bits
         :param vocab_size: size of vocabulary
         :param hidden_size: hidden size for LSTM layers
         :param num_layers: number of LSTM layers, 1st layer is bidirectional
@@ -36,19 +38,19 @@ class ResidualRecurrentEncoder(nn.Module):
         self.rnn_layers = nn.ModuleList()
         # 1st LSTM layer, bidirectional
         self.rnn_layers.append(
-            nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=True,
-                    batch_first=batch_first, bidirectional=True))
+            LSTM_q(bits, hidden_size, hidden_size, num_layers=1, bias=True,
+                   batch_first=batch_first, bidirectional=True))
 
         # 2nd LSTM layer, with 2x larger input_size
         self.rnn_layers.append(
-            nn.LSTM((2 * hidden_size), hidden_size, num_layers=1, bias=True,
-                    batch_first=batch_first))
+            LSTM_q(bits, (2 * hidden_size), hidden_size, num_layers=1, bias=True,
+                   batch_first=batch_first))
 
         # Remaining LSTM layers
         for _ in range(num_layers - 2):
             self.rnn_layers.append(
-                nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=True,
-                        batch_first=batch_first))
+                LSTM_q(bits, hidden_size, hidden_size, num_layers=1, bias=True,
+                       batch_first=batch_first))
 
         for lstm in self.rnn_layers:
             init_lstm_(lstm, init_weight)

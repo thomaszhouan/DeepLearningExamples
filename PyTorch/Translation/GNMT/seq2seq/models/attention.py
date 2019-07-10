@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
+from seq2seq.models.dfxp import Linear_q
 
 
 class BahdanauAttention(nn.Module):
@@ -11,11 +12,12 @@ class BahdanauAttention(nn.Module):
     Bahdanau Attention (https://arxiv.org/abs/1409.0473)
     Implementation is very similar to tf.contrib.seq2seq.BahdanauAttention
     """
-    def __init__(self, query_size, key_size, num_units, normalize=False,
+    def __init__(self, bits, query_size, key_size, num_units, normalize=False,
                  batch_first=False, init_weight=0.1):
         """
         Constructor for the BahdanauAttention.
 
+        :param bits: number of DFXP bits
         :param query_size: feature dimension for query
         :param key_size: feature dimension for keys
         :param num_units: internal feature dimension
@@ -31,8 +33,8 @@ class BahdanauAttention(nn.Module):
         self.batch_first = batch_first
         self.num_units = num_units
 
-        self.linear_q = nn.Linear(query_size, num_units, bias=False)
-        self.linear_k = nn.Linear(key_size, num_units, bias=False)
+        self.linear_q = Linear_q(bits, query_size, num_units, bias=False)
+        self.linear_k = Linear_q(bits, key_size, num_units, bias=False)
         nn.init.uniform_(self.linear_q.weight.data, -init_weight, init_weight)
         nn.init.uniform_(self.linear_k.weight.data, -init_weight, init_weight)
 
