@@ -13,7 +13,9 @@ from seq2seq.train.fp_optimizers import Fp16Optimizer
 from seq2seq.train.fp_optimizers import Fp32Optimizer
 from seq2seq.train.lr_scheduler import WarmupMultiStepLR
 from seq2seq.utils import AverageMeter
-from seq2seq.utils import sync_workers
+from seq2seq.utils import sync_workers, get_rank
+
+from tensorboardX import SummaryWriter
 
 
 class Seq2SeqTrainer:
@@ -88,6 +90,7 @@ class Seq2SeqTrainer:
         self.translator = translator
         self.intra_epoch_eval = intra_epoch_eval
         self.iter_size = iter_size
+        self.writer = SummaryWriter(save_path)
 
         if cuda:
             self.model = self.model.cuda()
@@ -244,6 +247,14 @@ class Seq2SeqTrainer:
                     log += [f'LR {lr:.3e}']
                 log = '\t'.join(log)
                 logging.info(log)
+
+                if get_rank() == 0:
+                    self.writer.add_scalar('time/batch', batch_time.val, self.save_counter)
+                    self.writer.add_scalar('time/data', data_time.val, self.save_counter)
+                    self.writer.add_scalar('time/Tok-per-sec', tot_tok_time.val, self.save_counter)
+                    self.writer.add_scalar('train/Loss-per-tok', losses_per_token.val, self.save_counter)
+                    if training:
+                        self.writer.add_scalar('other/lr', self.optimizer.param_groups[0]['lr'], self.save_counter)
 
             save_chkpt = (self.save_counter % self.save_freq) == (self.save_freq - 1)
             if training and save_chkpt:
