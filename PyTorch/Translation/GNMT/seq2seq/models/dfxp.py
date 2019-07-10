@@ -7,7 +7,7 @@ from torch.utils.cpp_extension import load
 
 
 dfxp_backend = load(name='dfxp_backend',
-    sources=['models/dfxp.cpp', 'models/dfxp.cu'],
+    sources=['seq2seq/models/dfxp.cpp', 'seq2seq/models/dfxp.cu'],
     extra_cflags=['-std=c++11', '-O3', '-D_GLIBCXX_USE_CXX11_ABI=1', '-L/usr/local/cuda-9.0/lib64', '-v'],
     extra_cuda_cflags=['--use_fast_math', '-L/usr/local/cuda-9.0/lib64', '-v'],
     extra_ldflags=['-lcurand'],

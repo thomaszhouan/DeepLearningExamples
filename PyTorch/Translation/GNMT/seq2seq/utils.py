@@ -10,6 +10,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.init as init
 import torch.utils.collect_env
+from seq2seq.models.dfxp import LSTM_q
 
 
 def init_lstm_(lstm, init_weight=0.1):
@@ -21,24 +22,32 @@ def init_lstm_(lstm, init_weight=0.1):
     :param lstm: instance of torch.nn.LSTM
     :param init_weight: range for the uniform initializer
     """
-    # Initialize hidden-hidden weights
-    init.uniform_(lstm.weight_hh_l0.data, -init_weight, init_weight)
-    # Initialize input-hidden weights:
-    init.uniform_(lstm.weight_ih_l0.data, -init_weight, init_weight)
+    if isinstance(lstm, LSTM_q):
+        init.uniform_(lstm.cell.weight.data, -init_weight, init_weight)
+        init.uniform_(lstm.cell.bias.data, -init_weight, init_weight)
 
-    # Initialize bias. PyTorch LSTM has two biases, one for input-hidden GEMM
-    # and the other for hidden-hidden GEMM. Here input-hidden bias is
-    # initialized with uniform distribution and hidden-hidden bias is
-    # initialized with zeros.
-    init.uniform_(lstm.bias_ih_l0.data, -init_weight, init_weight)
-    init.zeros_(lstm.bias_hh_l0.data)
+        if lstm.bidirectional:
+            init.uniform_(lstm.cell_reverse.weight.data, -init_weight, init_weight)
+            init.uniform_(lstm.cell_reverse.bias.data, -init_weight, init_weight)
+    else:
+        # Initialize hidden-hidden weights
+        init.uniform_(lstm.weight_hh_l0.data, -init_weight, init_weight)
+        # Initialize input-hidden weights:
+        init.uniform_(lstm.weight_ih_l0.data, -init_weight, init_weight)
 
-    if lstm.bidirectional:
-        init.uniform_(lstm.weight_hh_l0_reverse.data, -init_weight, init_weight)
-        init.uniform_(lstm.weight_ih_l0_reverse.data, -init_weight, init_weight)
+        # Initialize bias. PyTorch LSTM has two biases, one for input-hidden GEMM
+        # and the other for hidden-hidden GEMM. Here input-hidden bias is
+        # initialized with uniform distribution and hidden-hidden bias is
+        # initialized with zeros.
+        init.uniform_(lstm.bias_ih_l0.data, -init_weight, init_weight)
+        init.zeros_(lstm.bias_hh_l0.data)
 
-        init.uniform_(lstm.bias_ih_l0_reverse.data, -init_weight, init_weight)
-        init.zeros_(lstm.bias_hh_l0_reverse.data)
+        if lstm.bidirectional:
+            init.uniform_(lstm.weight_hh_l0_reverse.data, -init_weight, init_weight)
+            init.uniform_(lstm.weight_ih_l0_reverse.data, -init_weight, init_weight)
+
+            init.uniform_(lstm.bias_ih_l0_reverse.data, -init_weight, init_weight)
+            init.zeros_(lstm.bias_hh_l0_reverse.data)
 
 
 def generate_seeds(rng, size):
