@@ -5,6 +5,7 @@ import torch.nn as nn
 
 import seq2seq.data.config as config
 from seq2seq.models.attention import BahdanauAttention
+from seq2seq.models.dfxp import Linear_q, LSTM_q
 from seq2seq.utils import init_lstm_
 
 
@@ -12,12 +13,13 @@ class RecurrentAttention(nn.Module):
     """
     LSTM wrapped with an attention module.
     """
-    def __init__(self, input_size=1024, context_size=1024, hidden_size=1024,
+    def __init__(self, bits, input_size=1024, context_size=1024, hidden_size=1024,
                  num_layers=1, batch_first=False, dropout=0.2,
                  init_weight=0.1):
         """
         Constructor for the RecurrentAttention.
 
+        :param bits: number of DFXP bits
         :param input_size: number of features in input tensor
         :param context_size: number of features in output from encoder
         :param hidden_size: internal hidden size
@@ -30,11 +32,11 @@ class RecurrentAttention(nn.Module):
 
         super(RecurrentAttention, self).__init__()
 
-        self.rnn = nn.LSTM(input_size, hidden_size, num_layers, bias=True,
-                           batch_first=batch_first)
+        self.rnn = LSTM_q(bits, input_size, hidden_size, num_layers, bias=True,
+                          batch_first=batch_first)
         init_lstm_(self.rnn, init_weight)
 
-        self.attn = BahdanauAttention(hidden_size, context_size, context_size,
+        self.attn = BahdanauAttention(bits, hidden_size, context_size, context_size,
                                       normalize=True, batch_first=batch_first)
 
         self.dropout = nn.Dropout(dropout)
@@ -66,16 +68,17 @@ class Classifier(nn.Module):
     """
     Fully-connected classifier
     """
-    def __init__(self, in_features, out_features, init_weight=0.1):
+    def __init__(self, bits, in_features, out_features, init_weight=0.1):
         """
         Constructor for the Classifier.
 
+        :param bits: number of DFXP bits
         :param in_features: number of input features
         :param out_features: number of output features (size of vocabulary)
         :param init_weight: range for the uniform initializer
         """
         super(Classifier, self).__init__()
-        self.classifier = nn.Linear(in_features, out_features)
+        self.classifier = Linear_q(max(16, bits), in_features, out_features)
         nn.init.uniform_(self.classifier.weight.data, -init_weight, init_weight)
         nn.init.uniform_(self.classifier.bias.data, -init_weight, init_weight)
 
@@ -103,11 +106,12 @@ class ResidualRecurrentDecoder(nn.Module):
     Residual connections are enabled after 3rd LSTM layer, dropout is applied
     on inputs to LSTM layers.
     """
-    def __init__(self, vocab_size, hidden_size=1024, num_layers=4, dropout=0.2,
+    def __init__(self, bits, vocab_size, hidden_size=1024, num_layers=4, dropout=0.2,
                  batch_first=False, embedder=None, init_weight=0.1):
         """
         Constructor of the ResidualRecurrentDecoder.
 
+        :param bits: number of DFXP bits
         :param vocab_size: size of vocabulary
         :param hidden_size: hidden size for LSMT layers
         :param num_layers: number of LSTM layers
@@ -122,7 +126,7 @@ class ResidualRecurrentDecoder(nn.Module):
 
         self.num_layers = num_layers
 
-        self.att_rnn = RecurrentAttention(hidden_size, hidden_size,
+        self.att_rnn = RecurrentAttention(bits, hidden_size, hidden_size,
                                           hidden_size, num_layers=1,
                                           batch_first=batch_first,
                                           dropout=dropout)
@@ -130,8 +134,8 @@ class ResidualRecurrentDecoder(nn.Module):
         self.rnn_layers = nn.ModuleList()
         for _ in range(num_layers - 1):
             self.rnn_layers.append(
-                nn.LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=True,
-                        batch_first=batch_first))
+                LSTM_q(bits, 2 * hidden_size, hidden_size, num_layers=1, bias=True,
+                       batch_first=batch_first))
 
         for lstm in self.rnn_layers:
             init_lstm_(lstm, init_weight)
@@ -144,7 +148,7 @@ class ResidualRecurrentDecoder(nn.Module):
             nn.init.uniform_(self.embedder.weight.data, -init_weight,
                              init_weight)
 
-        self.classifier = Classifier(hidden_size, vocab_size)
+        self.classifier = Classifier(bits, hidden_size, vocab_size)
         self.dropout = nn.Dropout(p=dropout)
 
     def init_hidden(self, hidden):
