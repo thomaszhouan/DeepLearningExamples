@@ -353,10 +353,10 @@ class LSTMCell_q(nn.Module):
 
         i, f, g, o = y.chunk(4, 1)
 
-        i = F.sigmoid(i)
-        f = F.sigmoid(f)
-        g = F.tanh(g)
-        o = F.sigmoid(o)
+        i = torch.sigmoid(i)
+        f = torch.sigmoid(f)
+        g = torch.tanh(g)
+        o = torch.sigmoid(o)
 
         i = self.igate_q(self.igate_grad_q(i))
         f = self.fgate_q(self.fgate_grad_q(f))
@@ -366,7 +366,7 @@ class LSTMCell_q(nn.Module):
         c = self.cell_q(c)
         c = self.cf_grad_q(c * f) + self.ig_grad_q(i * g)
 
-        cell_tanh = F.tanh(c)
+        cell_tanh = torch.tanh(c)
         cell_tanh = self.cell_tanh_q(self.cell_tanh_grad_q(cell_tanh))
         h = self.hidden_grad_q(cell_tanh * o)
         return (h, c)
@@ -396,26 +396,38 @@ class LSTM_q(nn.Module):
         self.batch_first = batch_first
         self.bidirectional = bidirectional
 
-        self.cell = LSTMCell_q(bits, input_size, hidden_size)
+        self.cell = LSTMCell_q(bits, input_size, hidden_size, bias)
         if bidirectional:
-            self.cell_reverse = LSTMCell_q(bits, input_size, hidden_size)
+            self.cell_reverse = LSTMCell_q(bits, input_size, hidden_size, bias)
 
     def forward(self, X, hx=None):
         is_packed = isinstance(X, PackedSequence)
         assert not self.bidirectional or is_packed, (
             'Input of bidirectional LSTM must be packed.')
 
+        # unpack hx
+        hx0 = tuple(h[0] for h in hx) if hx is not None else None
+        if self.bidirectional:
+            hx1 = tuple(h[1] for h in hx) if hx is not None else None
+
         if is_packed:
             X, batch_sizes = X
-            output, hx = self.forward_packed_sequence(X, batch_sizes, hx)
-            output_reversed, hx_reversed = self.forward_packed_sequence_reversed(
-                X, batch_sizes, hx)
-            output = torch.cat((output, output_reversed), 1)
-            hx = tuple(torch.cat((h, h_reversed), 1)
-                for h, h_reversed in zip(hx, hx_reversed))
+            output, hx = self.forward_packed_sequence(X, batch_sizes, hx0)
+            hx = tuple(h.unsqueeze(0) for h in hx) # (1, batch_size, hidden_size)
+
+            if self.bidirectional:
+                output_reversed, hx_reversed = self.forward_packed_sequence_reversed(
+                    X, batch_sizes, hx1)
+                output = torch.cat((output, output_reversed), 1)
+                hx_reversed = tuple(h.unsqueeze(0) for h in hx_reversed) # (1, batch_size, hidden_size)
+                hx = tuple(torch.cat((h, h_reversed), 0)
+                    for h, h_reversed in zip(hx, hx_reversed))
+
             return PackedSequence(output, batch_sizes), hx
         else:
-            return self.forward_tensor(X, hx)
+            output, hx = self.forward_tensor(X, hx0)
+            hx = tuple(h.unsqueeze(0) for h in hx) # (1, batch_size, hidden_size)
+            return output, hx
 
     def forward_tensor(self, X, hx):
         output = []
@@ -424,7 +436,7 @@ class LSTM_q(nn.Module):
             hx = self.cell(X_step, hx)
             output.append(hx[0])
 
-        # shape: (seq_len * batch_size, hidden_size)
+        # output: (seq_len * batch_size, hidden_size)
         output = torch.cat(tuple(output), 0)
         output = output.view(seq_len, -1, self.hidden_size)
         return output, hx

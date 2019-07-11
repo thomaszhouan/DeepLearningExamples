@@ -91,6 +91,7 @@ class Seq2SeqTrainer:
         self.intra_epoch_eval = intra_epoch_eval
         self.iter_size = iter_size
         self.writer = SummaryWriter(save_path)
+        self.global_step = 0
 
         if cuda:
             self.model = self.model.cuda()
@@ -192,6 +193,7 @@ class Seq2SeqTrainer:
         end = time.time()
         for i, (src, tgt) in enumerate(data_loader):
             self.save_counter += 1
+            self.global_step += 1
             # measure data loading time
             data_time.update(time.time() - end)
 
@@ -249,12 +251,12 @@ class Seq2SeqTrainer:
                 logging.info(log)
 
                 if get_rank() == 0:
-                    self.writer.add_scalar('time/batch', batch_time.val, self.save_counter)
-                    self.writer.add_scalar('time/data', data_time.val, self.save_counter)
-                    self.writer.add_scalar('time/Tok-per-sec', tot_tok_time.val, self.save_counter)
-                    self.writer.add_scalar('train/Loss-per-tok', losses_per_token.val, self.save_counter)
+                    self.writer.add_scalar('time/batch', batch_time.val, self.global_step)
+                    self.writer.add_scalar('time/data', data_time.val, self.global_step)
+                    self.writer.add_scalar('time/Tok-per-sec', tot_tok_time.val, self.global_step)
+                    self.writer.add_scalar('train/Loss-per-tok', losses_per_token.val, self.global_step)
                     if training:
-                        self.writer.add_scalar('other/lr', self.optimizer.param_groups[0]['lr'], self.save_counter)
+                        self.writer.add_scalar('other/lr', self.optimizer.param_groups[0]['lr'], self.global_step)
 
             save_chkpt = (self.save_counter % self.save_freq) == (self.save_freq - 1)
             if training and save_chkpt:
