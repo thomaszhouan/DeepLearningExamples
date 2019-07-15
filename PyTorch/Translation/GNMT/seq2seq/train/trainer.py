@@ -90,7 +90,8 @@ class Seq2SeqTrainer:
         self.translator = translator
         self.intra_epoch_eval = intra_epoch_eval
         self.iter_size = iter_size
-        self.writer = SummaryWriter(save_path)
+        if get_rank() == 0:
+            self.writer = SummaryWriter(save_path)
         self.global_step = 0
 
         if cuda:
@@ -155,7 +156,7 @@ class Seq2SeqTrainer:
         loss_per_batch = loss.item()
         loss /= (B * self.iter_size)
 
-        if training:
+        if training and self.global_step > 5:
             self.fp_optimizer.step(loss, self.optimizer, self.scheduler,
                                    update)
 

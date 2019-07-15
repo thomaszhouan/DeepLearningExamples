@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-from seq2seq.models.dfxp import Linear_q
+from seq2seq.models.dfxp import Linear_q, ActivationQuantizer, WeightQuantizer, GradientQuantizer
 
 
 class BahdanauAttention(nn.Module):
@@ -50,6 +50,17 @@ class BahdanauAttention(nn.Module):
             self.register_parameter('normalize_bias', None)
 
         self.reset_parameters(init_weight)
+
+        # forward quantizers
+        self.sum_tanh_q = ActivationQuantizer(bits)
+        self.linear_att_q = WeightQuantizer(bits, self.linear_att)
+        self.score_q = ActivationQuantizer(bits)
+        self.key_q = ActivationQuantizer(bits)
+
+        # backward quantizers
+        self.sum_tanh_grad_q = GradientQuantizer(bits)
+        self.score_grad_q = GradientQuantizer(bits)
+        self.context_grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self, init_weight):
         """
@@ -106,7 +117,12 @@ class BahdanauAttention(nn.Module):
         else:
             linear_att = self.linear_att
 
-        out = torch.tanh(sum_qk).matmul(linear_att)
+        linear_att = self.linear_att_q(linear_att)
+        sum_tanh = torch.tanh(sum_qk)
+        sum_tanh = self.sum_tanh_q(self.sum_tanh_grad_q(sum_tanh))
+        out = self.score_grad_q(sum_tanh.matmul(linear_att))
+
+        # out = torch.tanh(sum_qk).matmul(linear_att)
         return out
 
     def forward(self, query, keys):
@@ -151,10 +167,17 @@ class BahdanauAttention(nn.Module):
         # Normalize the scores, softmax over t_k
         scores_normalized = F.softmax(scores, dim=-1)
 
+        # forward quantize
+        scores_normalized = self.score_q(scores_normalized)
+        keys = self.key_q(keys)
+
         # Calculate the weighted average of the attention inputs according to
         # the scores
         # context: (b x t_q x n)
         context = torch.bmm(scores_normalized, keys)
+
+        # backward quantize
+        context = self.context_grad_q(context)
 
         if single_query:
             context = context.squeeze(1)

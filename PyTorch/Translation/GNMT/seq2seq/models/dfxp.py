@@ -14,18 +14,29 @@ dfxp_backend = load(name='dfxp_backend',
     verbose=True, build_directory='.')
 
 
-class Quantize(torch.autograd.Function):
+class ActivationQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, X, qmin, qmax, step, update_step):
-        return dfxp_backend.dfxp_quantize_forward(X, qmin, qmax, step, update_step)
+        return dfxp_backend.dfxp_activation_quantize_forward(X, qmin, qmax, step, update_step)
 
     @staticmethod
     def backward(ctx, grad):
         return grad, None, None, None, None
 
 
-class GradQuantize(torch.autograd.Function):
+class WeightQuantize(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, X, X_q, qmin, qmax, step, update_step):
+        return dfxp_backend.dfxp_weight_quantize_forward(X, X_q, qmin, qmax, step, update_step)
+
+    @staticmethod
+    def backward(ctx, grad):
+        return grad, None, None, None, None, None
+
+
+class GradientQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, X, qmin, qmax, step, update_step):
@@ -37,11 +48,11 @@ class GradQuantize(torch.autograd.Function):
     def backward(ctx, grad):
         qmin, qmax, step = ctx.saved_tensors
         update_step = ctx.update_step
-        grad = dfxp_backend.dfxp_grad_quantize_backward(grad, qmin, qmax, step, update_step)
+        grad = dfxp_backend.dfxp_gradient_quantize_backward(grad, qmin, qmax, step, update_step)
         return grad, None, None, None, None
 
 
-class ForwardQuantizer(nn.Module):
+class ActivationQuantizer(nn.Module):
 
     def __init__(self, bits, step=2.0 ** -5):
         super().__init__()
@@ -55,10 +66,10 @@ class ForwardQuantizer(nn.Module):
         self.register_buffer('qmax', torch.tensor(2.0 ** (bits - 1) - 1))
         self.register_buffer('step', torch.tensor(step))
 
-        self.update_step = False
+        self.update_step = True
 
     def forward_q(self, X):
-        return Quantize.apply(X, self.qmin, self.qmax, self.step, self.update_step)
+        return ActivationQuantize.apply(X, self.qmin, self.qmax, self.step, self.update_step)
 
     def identity(self, X):
         return X
@@ -72,7 +83,41 @@ class ForwardQuantizer(nn.Module):
         self.step.cpu()
 
 
-class BackwardQuantizer(nn.Module):
+class WeightQuantizer(nn.Module):
+
+    def __init__(self, bits, tensor, step=2.0 ** -5):
+        super().__init__()
+
+        if bits == 32:
+            self.forward = self.identity
+        else:
+            self.forward = self.forward_q
+
+        self.register_buffer('qmin', torch.tensor(-(2.0 ** (bits - 1))))
+        self.register_buffer('qmax', torch.tensor(2.0 ** (bits - 1) - 1))
+        self.register_buffer('step', torch.tensor(step))
+
+        self.update_step = True
+
+        if bits < 32:
+            self.register_buffer('tensor_q', torch.empty_like(tensor))
+
+    def forward_q(self, X):
+        return WeightQuantize.apply(X, self.tensor_q, self.qmin, self.qmax, self.step, self.update_step)
+
+    def identity(self, X):
+        return X
+
+    def cuda(self):
+        super().cuda()
+
+        # move back to cpu for faster dereferencing
+        self.qmin.cpu()
+        self.qmax.cpu()
+        self.step.cpu()
+
+
+class GradientQuantizer(nn.Module):
 
     def __init__(self, bits, step=2.0 ** -5):
         super().__init__()
@@ -86,10 +131,10 @@ class BackwardQuantizer(nn.Module):
         self.register_buffer('qmax', torch.tensor(2.0 ** (bits - 1) - 1))
         self.register_buffer('step', torch.tensor(step))
 
-        self.update_step = False
+        self.update_step = True
 
     def forward_q(self, X):
-        return GradQuantize.apply(X, self.qmin, self.qmax, self.step, self.update_step)
+        return GradientQuantize.apply(X, self.qmin, self.qmax, self.step, self.update_step)
 
     def identity(self, X):
         return X
@@ -132,13 +177,13 @@ class Conv2d_q(nn.Module):
             self.register_parameter('bias', None)
         self.reset_parameters()
 
-        self.input_q = ForwardQuantizer(bits)
-        self.weight_q = ForwardQuantizer(bits)
+        self.input_q = ActivationQuantizer(bits)
+        self.weight_q = WeightQuantizer(bits, self.weight)
         if self.bias is not None:
-            self.bias_q = ForwardQuantizer(bits)
+            self.bias_q = WeightQuantizer(bits, self.bias)
         else:
             self.bias_q = lambda x: x
-        self.grad_q = BackwardQuantizer(bits)
+        self.grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self):
         nn.init.kaiming_normal_(self.weight, mode='fan_out', nonlinearity='relu')
@@ -175,13 +220,13 @@ class Linear_q(nn.Module):
             self.register_parameter('bias', None)
         self.reset_parameters()
 
-        self.input_q = ForwardQuantizer(bits)
-        self.weight_q = ForwardQuantizer(bits)
+        self.input_q = ActivationQuantizer(bits)
+        self.weight_q = WeightQuantizer(bits, self.weight)
         if self.bias is not None:
-            self.bias_q = ForwardQuantizer(bits)
+            self.bias_q = WeightQuantizer(bits, self.bias)
         else:
             self.bias_q = lambda x: x
-        self.grad_q = BackwardQuantizer(bits)
+        self.grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self):
         nn.init.kaiming_uniform_(self.weight, a=5**0.5)
@@ -215,8 +260,8 @@ class Normalize2d_q(nn.Module):
         self.register_buffer('running_var', torch.ones(num_features))
         self.reset_parameters()
 
-        self.input_q = ForwardQuantizer(bits)
-        self.grad_q = BackwardQuantizer(bits)
+        self.input_q = ActivationQuantizer(bits)
+        self.grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self):
         self.running_mean.zero_()
@@ -243,10 +288,10 @@ class Rescale2d_q(nn.Module):
         self.bias = nn.Parameter(torch.Tensor(num_features, 1, 1))
         self.reset_parameters()
 
-        self.input_q = ForwardQuantizer(bits)
-        self.weight_q = ForwardQuantizer(bits)
-        self.bias_q = ForwardQuantizer(bits)
-        self.grad_q = BackwardQuantizer(bits)
+        self.input_q = ActivationQuantizer(bits)
+        self.weight_q = WeightQuantizer(bits, self.weight)
+        self.bias_q = WeightQuantizer(bits, self.bias)
+        self.grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self):
         nn.init.ones_(self.weight)
@@ -309,29 +354,29 @@ class LSTMCell_q(nn.Module):
         self.reset_parameters()
 
         # forward quantizers
-        self.input_q = ForwardQuantizer(bits)
-        self.weight_q = ForwardQuantizer(bits)
+        self.input_q = ActivationQuantizer(bits)
+        self.weight_q = WeightQuantizer(bits, self.weight)
         if self.bias is not None:
-            self.bias_q = ForwardQuantizer(bits)
+            self.bias_q = WeightQuantizer(bits, self.bias)
         else:
             self.bias_q = lambda x: x
-        self.cell_q = ForwardQuantizer(bits)
-        self.fgate_q = ForwardQuantizer(bits)
-        self.igate_q = ForwardQuantizer(bits)
-        self.ggate_q = ForwardQuantizer(bits)
-        self.ogate_q = ForwardQuantizer(bits)
-        self.cell_tanh_q = ForwardQuantizer(bits)
+        self.cell_q = ActivationQuantizer(bits)
+        self.fgate_q = ActivationQuantizer(bits)
+        self.igate_q = ActivationQuantizer(bits)
+        self.ggate_q = ActivationQuantizer(bits)
+        self.ogate_q = ActivationQuantizer(bits)
+        self.cell_tanh_q = ActivationQuantizer(bits)
 
         # backward quantizers
-        self.matmul_grad_q = BackwardQuantizer(bits)
-        self.fgate_grad_q = BackwardQuantizer(bits)
-        self.igate_grad_q = BackwardQuantizer(bits)
-        self.ggate_grad_q = BackwardQuantizer(bits)
-        self.ogate_grad_q = BackwardQuantizer(bits)
-        self.cf_grad_q = BackwardQuantizer(bits)
-        self.ig_grad_q = BackwardQuantizer(bits)
-        self.cell_tanh_grad_q = BackwardQuantizer(bits)
-        self.hidden_grad_q = BackwardQuantizer(bits)
+        self.matmul_grad_q = GradientQuantizer(bits)
+        self.fgate_grad_q = GradientQuantizer(bits)
+        self.igate_grad_q = GradientQuantizer(bits)
+        self.ggate_grad_q = GradientQuantizer(bits)
+        self.ogate_grad_q = GradientQuantizer(bits)
+        self.cf_grad_q = GradientQuantizer(bits)
+        self.ig_grad_q = GradientQuantizer(bits)
+        self.cell_tanh_grad_q = GradientQuantizer(bits)
+        self.hidden_grad_q = GradientQuantizer(bits)
 
     def reset_parameters(self):
         stdv = self.hidden_size ** -0.5
